@@ -2887,7 +2887,7 @@ static int dwc3_msm_resume(struct dwc3_msm *mdwc)
 	  usb_data_enabled = true **************************************/
 /***  echo 0 > /sys/class/usb_notify/usb_control/usb_data_enabled
 	  usb_data_enabled = false **************************************/
-extern usb_data_enabled;
+extern bool usb_data_enabled;
 /*HS60 add for P220517-05405 add usb_date_enable by duanweiping at 20220613 end*/
 
 /**
