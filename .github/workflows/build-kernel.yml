@@ -1,4 +1,4 @@
-name: Build kernel and boot.img.tar
+name: Build kernel and boot.img.tar (stable)
 
 on:
   workflow_dispatch:
@@ -7,21 +7,32 @@ on:
         description: "Defconfig name"
         required: true
         default: "a02q_defconfig"
+      use_author_defconfig:
+        description: "Replace the defconfig with the original author's before building (A/B test)"
+        required: true
+        type: boolean
+        default: false
       stock_boot_url:
-        description: "Optional direct URL to stock boot.img (otherwise stock/boot.img from the repo is used)"
+        description: "Optional direct URL to stock boot.img (otherwise s-kernel/boot.img or stock/boot.img from the repo is used)"
         required: false
         default: ""
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     env:
       ARCH: arm64
       DEFCONFIG: ${{ github.event.inputs.defconfig || 'a02q_defconfig' }}
+      USE_AUTHOR_DEFCONFIG: ${{ github.event.inputs.use_author_defconfig || 'false' }}
       STOCK_BOOT_URL: ${{ github.event.inputs.stock_boot_url }}
       ALLOW_UNSAFE_WARNINGS: 1
+      AUTHOR_DEFCONFIG_URL: https://raw.githubusercontent.com/micr0softstore/samsung_android_kernel_a02q/main/arch/arm64/configs/a02q_defconfig
 
     defaults:
       run:
@@ -32,19 +43,60 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Helpers (retry for flaky downloads, make wrapper)
+        run: |
+          cat > "$RUNNER_TEMP/retry.sh" <<'EOF'
+          retry() {
+            local n=0
+            until "$@"; do
+              n=$((n+1))
+              if [ "$n" -ge 4 ]; then return 1; fi
+              echo "retry $n/3: $*"
+              sleep $((n*5))
+            done
+          }
+          EOF
+          cat > "$RUNNER_TEMP/mk.sh" <<'EOF'
+          mk() {
+            local dtc py2
+            if [ -f tools/dtc ]; then chmod +x tools/dtc; dtc="$PWD/tools/dtc"; else dtc="$(command -v dtc)"; fi
+            py2="$(command -v python2 || command -v python3)"
+            make -j"$(nproc)" O="$PWD/out" ARCH=arm64 \
+              CROSS_COMPILE="$PWD/toolchain/bin/aarch64-linux-android-" \
+              "HOSTCC=gcc -fcommon -Wno-deprecated-declarations" \
+              PYTHON="$py2" DTC_EXT="$dtc" CONFIG_BUILD_ARM64_DT_OVERLAY=y "$@"
+          }
+          EOF
+          mkdir -p work artifacts out
+
       - name: Restore exec bits
         run: |
           find . -path ./.git -prune -o -type f \
             \( -name '*.sh' -o -name '*.py' -o -name '*.pl' -o -path './scripts/*' -o -path './tools/*' \) \
             -exec chmod +x {} +
 
-      - name: Install build tools and modern toolchain
+      - name: Install build tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
             build-essential bc bison flex libssl-dev libelf-dev \
-            device-tree-compiler python2 python3 cpio xz-utils git wget \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+            device-tree-compiler python3 cpio xz-utils git wget binutils
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends python2 || echo "python2 not available, using python3"
+
+      # The original author's build_kernel.sh builds with the Android GCC 4.9 toolchain
+      # (toolchain/bin/aarch64-linux-android-). Same compiler here, no clang.
+      - name: Get GCC 4.9 toolchain
+        run: |
+          source "$RUNNER_TEMP/retry.sh"
+          rm -rf toolchain
+          if ! retry git clone -q --depth=1 \
+              https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 toolchain; then
+            echo "googlesource failed, trying the LineageOS mirror"
+            rm -rf toolchain
+            retry git clone -q --depth=1 \
+              https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 toolchain
+          fi
+          toolchain/bin/aarch64-linux-android-gcc --version | head -n1
 
       - name: Check defconfig exists
         run: |
@@ -54,36 +106,59 @@ jobs:
             exit 1
           fi
 
+      - name: Compare defconfig with the original author's
+        run: |
+          source "$RUNNER_TEMP/retry.sh"
+          retry wget -q -O work/author_defconfig "$AUTHOR_DEFCONFIG_URL"
+          echo "=============== defconfig differences: author (-) vs this repo (+) ==============="
+          diff -u work/author_defconfig "arch/$ARCH/configs/$DEFCONFIG" > work/defconfig.diff || true
+          cat work/defconfig.diff
+          echo "=============== end of differences ==============="
+          cp work/defconfig.diff artifacts/defconfig.diff
+          if [ "$USE_AUTHOR_DEFCONFIG" = "true" ]; then
+            echo "::warning::use_author_defconfig is ON, building with the author's defconfig instead of yours"
+            cp work/author_defconfig "arch/$ARCH/configs/$DEFCONFIG"
+          fi
+
+      - name: Configure
+        run: |
+          source "$RUNNER_TEMP/mk.sh"
+          mk "$DEFCONFIG"
+
+      - name: Config report
+        run: |
+          source "$RUNNER_TEMP/mk.sh"
+          echo "Kernel release: $(mk -s kernelrelease 2>/dev/null | tail -n1)"
+          grep -E '^(# )?CONFIG_(LOCALVERSION|DM_VERITY|DM_ANDROID_VERITY|CC_STACKPROTECTOR|LTO|CC_OPTIMIZE|MODVERSIONS|MODULE_FORCE|BUILD_ARM64_APPENDED_DTB_IMAGE)' out/.config || true
+          if grep -q '^# CONFIG_DM_VERITY is not set' out/.config; then
+            echo "::warning::CONFIG_DM_VERITY is disabled. With verified boot still enabled on the phone this commonly causes a bootloop. Flash the vbmeta tar too."
+          fi
+
       - name: Build
         run: |
-          DTC=$(command -v dtc)
-          [ -x tools/dtc ] && DTC=$PWD/tools/dtc
-          MK=(make O=out ARCH=$ARCH PYTHON=python2
-              "HOSTCC=gcc -Wno-deprecated-declarations"
-              CROSS_COMPILE=aarch64-linux-gnu-
-              CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-              DTC_EXT=$DTC CONFIG_BUILD_ARM64_DT_OVERLAY=y)
-          "${MK[@]}" $DEFCONFIG
-          "${MK[@]}" -j"$(nproc)" 2>&1 | tee build.log
+          source "$RUNNER_TEMP/mk.sh"
+          # full log goes to build.log, only the compiler-support spam is hidden on the console
+          mk 2>&1 | tee build.log | { grep -viE 'gcc.*unsupported|unsupported.*gcc' || true; }
 
       - name: Pick kernel image
         run: |
-          mkdir -p artifacts
-          B=out/arch/$ARCH/boot
-          for f in Image.gz-dtb Image.gz Image; do
-            [ -f "$B/$f" ] && K="$B/$f" && break
-          done
-          [ -n "$K" ] || { echo "no kernel image in $B"; exit 1; }
+          K=out/arch/arm64/boot/Image
+          if [ ! -f "$K" ]; then
+            echo "No $K produced. Contents of out/arch/arm64/boot:"
+            ls -la out/arch/arm64/boot || true
+            exit 1
+          fi
           echo "KERNEL_IMAGE=$K" >> "$GITHUB_ENV"
-          cp "$K" artifacts/
-          ls -lh artifacts
+          cp "$K" artifacts/Image
+          ls -lh "$K"
+          strings -a "$K" | grep -m1 'Linux version' || true
 
       - name: Get stock boot.img
         id: stock
         run: |
-          mkdir -p work
+          source "$RUNNER_TEMP/retry.sh"
           if [ -n "$STOCK_BOOT_URL" ]; then
-            wget -q -O work/stock_boot.img "$STOCK_BOOT_URL"
+            retry wget -q -O work/stock_boot.img "$STOCK_BOOT_URL"
           elif [ -f s-kernel/boot.img ]; then
             cp s-kernel/boot.img work/stock_boot.img
           elif [ -f stock/boot.img ]; then
@@ -99,45 +174,49 @@ jobs:
       - name: Repack boot.img
         if: steps.stock.outputs.have == 'true'
         run: |
-          set -euo pipefail
-          git clone -q --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg work/mkbootimg
+          source "$RUNNER_TEMP/retry.sh"
+          retry git clone -q --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg work/mkbootimg
+          retry git clone -q --depth 1 https://android.googlesource.com/platform/external/avb work/avb
           cd work
+
           python3 mkbootimg/unpack_bootimg.py \
             --boot_img stock_boot.img \
             --out unpacked \
             --format=mkbootimg > mkargs.txt
+          echo "---- stock boot.img parameters ----"
           cat mkargs.txt
-          cp "$GITHUB_WORKSPACE/$KERNEL_IMAGE" unpacked/kernel
-          RAMDISK=""
-          for r in unpacked/ramdisk unpacked/ramdisk.cpio unpacked/ramdisk.gz unpacked/ramdisk.cpio.gz; do
-            if [ -f "$r" ]; then
-              RAMDISK="$r"
-              break
-            fi
-          done
-          if [ ! -s unpacked/kernel ]; then
-            echo "Kernel not copied into unpacked/kernel"
-            exit 1
-          fi
-          
-          # Safely parse and run mkbootimg using python shlex to respect quotes in mkargs.txt
-          python3 -c "
-          import subprocess, shlex
-          with open('mkargs.txt') as f:
-              cmd_line = f.read().strip()
-          args = shlex.split(cmd_line)
-          full_cmd = ['python3', 'mkbootimg/mkbootimg.py'] + args + ['-o', 'boot.img']
-          print('Running safely:', ' '.join(full_cmd))
-          subprocess.run(full_cmd, check=True)
-          "
+          echo "-----------------------------------"
+          ls -la unpacked
+          cp mkargs.txt "$GITHUB_WORKSPACE/artifacts/mkargs.txt"
 
-          printf 'SEANDROIDENFORCE' >> boot.img
-          
-          # Pad boot.img to exactly 64 MB (67,108,864 bytes) for Samsung A02s partition specs
-          truncate -s 64M boot.img
-          
+          OLD=$(stat -c %s unpacked/kernel)
+          NEW=$(stat -c %s "$GITHUB_WORKSPACE/$KERNEL_IMAGE")
+          echo "stock kernel: $OLD bytes, new kernel: $NEW bytes"
+          cp "$GITHUB_WORKSPACE/$KERNEL_IMAGE" unpacked/kernel
+
+          python3 - <<'PY'
+          import shlex, subprocess
+          args = shlex.split(open('mkargs.txt').read())
+          cmd = ['python3', 'mkbootimg/mkbootimg.py', *args, '-o', 'boot.img']
+          print('Running:', ' '.join(cmd))
+          subprocess.run(cmd, check=True)
+          PY
+
+          # Samsung marker: only add it if the stock image had it
+          if tail -c 16 stock_boot.img | grep -aq 'SEANDROIDENFORCE'; then
+            printf 'SEANDROIDENFORCE' >> boot.img
+            echo "Appended SEANDROIDENFORCE marker"
+          fi
+
+          # boot.img only, as requested
           tar -H ustar -cf "$GITHUB_WORKSPACE/artifacts/boot.img.tar" boot.img
-          ls -lh boot.img "$GITHUB_WORKSPACE/artifacts/boot.img.tar"
+
+          # second tar with a verification-disabled vbmeta for Odin (AP slot)
+          python3 avb/avbtool.py make_vbmeta_image \
+            --flags 2 --padding_size 4096 --output vbmeta.img
+          tar -H ustar -cf "$GITHUB_WORKSPACE/artifacts/boot_plus_vbmeta.tar" boot.img vbmeta.img
+
+          ls -lh boot.img stock_boot.img "$GITHUB_WORKSPACE"/artifacts/*.tar
 
       - uses: actions/upload-artifact@v4
         with:
