@@ -87,14 +87,32 @@ jobs:
       # (toolchain/bin/aarch64-linux-android-). Same compiler here, no clang.
       - name: Get GCC 4.9 toolchain
         run: |
-          source "$RUNNER_TEMP/retry.sh"
-          rm -rf toolchain
-          if ! retry git clone -q --depth=1 \
-              https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 toolchain; then
-            echo "googlesource failed, trying the LineageOS mirror"
+          GOOGLE=https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
+          LINEAGE=https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9
+          # the default branch of the AOSP repo no longer contains the compiler,
+          # so try release branches that still do, and accept a source only if the binary exists
+          CANDIDATES=(
+            "$GOOGLE android11-release"
+            "$GOOGLE android10-release"
+            "$GOOGLE pie-release"
+            "$LINEAGE lineage-18.1"
+            "$LINEAGE lineage-17.1"
+            "$LINEAGE lineage-19.1"
+          )
+          found=0
+          for c in "${CANDIDATES[@]}"; do
+            set -- $c
+            echo "Trying $1 (branch $2)"
             rm -rf toolchain
-            retry git clone -q --depth=1 \
-              https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 toolchain
+            if git clone -q --depth=1 -b "$2" "$1" toolchain && [ -x toolchain/bin/aarch64-linux-android-gcc ]; then
+              echo "Using $1 (branch $2)"
+              found=1
+              break
+            fi
+          done
+          if [ "$found" != 1 ]; then
+            echo "::error::Could not get an aarch64-linux-android-4.9 toolchain from any source"
+            exit 1
           fi
           toolchain/bin/aarch64-linux-android-gcc --version | head -n1
 
