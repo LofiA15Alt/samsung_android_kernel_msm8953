@@ -1,0 +1,122 @@
+name: Build kernel and boot.img.tar
+
+on:
+  workflow_dispatch:
+    inputs:
+      defconfig:
+        description: "Defconfig name"
+        required: true
+        default: "a02q_defconfig"
+      stock_boot_url:
+        description: "Optional direct URL to your stock boot.img (otherwise stock/boot.img from the repo is used)"
+        required: false
+        default: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    env:
+      ARCH: arm64
+      DEFCONFIG: ${{ github.event.inputs.defconfig || 'a02q_defconfig' }}
+      STOCK_BOOT_URL: ${{ github.event.inputs.stock_boot_url }}
+
+    steps:
+      - name: Check out source (shallow)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bc bison flex libssl-dev libelf-dev \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            device-tree-compiler python3 ccache cpio xz-utils git wget
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ github.sha }}
+          restore-keys: ccache-
+
+      - name: Check defconfig exists
+        run: |
+          if [ ! -f "arch/$ARCH/configs/$DEFCONFIG" ]; then
+            echo "Defconfig '$DEFCONFIG' not found. Available:"
+            ls arch/$ARCH/configs | head -n 100
+            exit 1
+          fi
+
+      - name: Configure
+        run: |
+          export PATH="/usr/lib/ccache:$PATH"
+          make O=out ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu- \
+               CROSS_COMPILE_ARM32=arm-linux-gnueabi- $DEFCONFIG
+
+      - name: Build
+        run: |
+          export PATH="/usr/lib/ccache:$PATH"
+          make O=out ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu- \
+               CROSS_COMPILE_ARM32=arm-linux-gnueabi- -j"$(nproc)" 2>&1 | tee build.log
+
+      - name: Pick kernel image
+        run: |
+          mkdir -p artifacts
+          B=out/arch/$ARCH/boot
+          if   [ -f "$B/Image.gz-dtb" ]; then K="$B/Image.gz-dtb"
+          elif [ -f "$B/Image.gz" ];     then K="$B/Image.gz"
+          else K="$B/Image"; fi
+          echo "KERNEL_IMAGE=$K" >> "$GITHUB_ENV"
+          cp "$K" artifacts/
+          find "$B/dts" -name '*.dtb' -exec cp {} artifacts/ \; 2>/dev/null || true
+          ls -lh artifacts
+
+      - name: Get stock boot.img
+        id: stock
+        run: |
+          mkdir -p work
+          if [ -n "$STOCK_BOOT_URL" ]; then
+            wget -q -O work/stock_boot.img "$STOCK_BOOT_URL"
+          elif [ -f stock/boot.img ]; then
+            cp stock/boot.img work/stock_boot.img
+          fi
+          if [ -s work/stock_boot.img ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No stock boot.img found (stock/boot.img or stock_boot_url). Only the raw kernel was built."
+          fi
+
+      - name: Repack boot.img
+        if: steps.stock.outputs.have == 'true'
+        run: |
+          git clone --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg work/mkbootimg
+          cd work
+          python3 mkbootimg/unpack_bootimg.py --boot_img stock_boot.img --out unpacked --format=mkbootimg > mkargs.txt
+          cat mkargs.txt
+          cp "$GITHUB_WORKSPACE/$KERNEL_IMAGE" unpacked/kernel
+          eval python3 mkbootimg/mkbootimg.py $(cat mkargs.txt) -o boot.img
+          # Samsung bootloaders expect this marker at the end of the image
+          printf 'SEANDROIDENFORCE' >> boot.img
+          ls -lh boot.img stock_boot.img
+          tar -H ustar -cf "$GITHUB_WORKSPACE/artifacts/boot.img.tar" boot.img
+          ls -lh "$GITHUB_WORKSPACE/artifacts/boot.img.tar"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ github.run_number }}
+          path: artifacts/*
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: build.log
+          if-no-files-found: ignore
