@@ -33,6 +33,12 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Restore exec bits
+        run: |
+          find . -path ./.git -prune -o -type f \
+            \( -name '*.sh' -o -name '*.py' -o -name '*.pl' -o -path './scripts/*' -o -path './tools/*' \) \
+            -exec chmod +x {} +
+
       - name: Install build tools
         run: |
           sudo apt-get update
@@ -61,6 +67,7 @@ jobs:
           DTC=$(command -v dtc)
           [ -x tools/dtc ] && DTC=$PWD/tools/dtc
           MK=(make O=out ARCH=$ARCH PYTHON=python2
+              "HOSTCC=gcc -Wno-deprecated-declarations"
               CROSS_COMPILE=aarch64-linux-android-
               CROSS_COMPILE_ARM32=arm-linux-androideabi-
               DTC_EXT=$DTC CONFIG_BUILD_ARM64_DT_OVERLAY=y)
