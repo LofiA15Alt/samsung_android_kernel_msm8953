@@ -93,6 +93,8 @@ jobs:
           mkdir -p work
           if [ -n "$STOCK_BOOT_URL" ]; then
             wget -q -O work/stock_boot.img "$STOCK_BOOT_URL"
+          elif [ -f s-kernel/boot.img ]; then
+            cp s-kernel/boot.img work/stock_boot.img
           elif [ -f stock/boot.img ]; then
             cp stock/boot.img work/stock_boot.img
           fi
@@ -100,7 +102,7 @@ jobs:
             echo "have=true" >> "$GITHUB_OUTPUT"
           else
             echo "have=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No stock boot.img found, only the raw kernel was built."
+            echo "::warning::No stock boot.img found (s-kernel/boot.img, stock/boot.img or stock_boot_url), only the raw kernel was built."
           fi
 
       - name: Repack boot.img
