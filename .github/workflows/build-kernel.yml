@@ -22,7 +22,6 @@ jobs:
       DEFCONFIG: ${{ github.event.inputs.defconfig || 'a02q_defconfig' }}
       STOCK_BOOT_URL: ${{ github.event.inputs.stock_boot_url }}
       ALLOW_UNSAFE_WARNINGS: 1
-      TC_TAG: android-10.0.0_r47
 
     defaults:
       run:
@@ -39,20 +38,13 @@ jobs:
             \( -name '*.sh' -o -name '*.py' -o -name '*.pl' -o -path './scripts/*' -o -path './tools/*' \) \
             -exec chmod +x {} +
 
-      - name: Install build tools
+      - name: Install build tools and modern toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential bc bison flex libssl-dev libelf-dev \
-            device-tree-compiler python2 python3 cpio xz-utils git wget
-
-      - name: Fetch GCC 4.9 toolchains
-        run: |
-          base=https://android.googlesource.com/platform/prebuilts/gcc/linux-x86
-          git clone -q --depth 1 -b "$TC_TAG" $base/aarch64/aarch64-linux-android-4.9 "$HOME/gcc64"
-          git clone -q --depth 1 -b "$TC_TAG" $base/arm/arm-linux-androideabi-4.9 "$HOME/gcc32"
-          echo "$HOME/gcc64/bin" >> "$GITHUB_PATH"
-          echo "$HOME/gcc32/bin" >> "$GITHUB_PATH"
+            device-tree-compiler python2 python3 cpio xz-utils git wget \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
       - name: Check defconfig exists
         run: |
@@ -68,8 +60,8 @@ jobs:
           [ -x tools/dtc ] && DTC=$PWD/tools/dtc
           MK=(make O=out ARCH=$ARCH PYTHON=python2
               "HOSTCC=gcc -Wno-deprecated-declarations"
-              CROSS_COMPILE=aarch64-linux-android-
-              CROSS_COMPILE_ARM32=arm-linux-androideabi-
+              CROSS_COMPILE=aarch64-linux-gnu-
+              CROSS_COMPILE_ARM32=arm-linux-gnueabi-
               DTC_EXT=$DTC CONFIG_BUILD_ARM64_DT_OVERLAY=y)
           "${MK[@]}" $DEFCONFIG
           "${MK[@]}" -j"$(nproc)" 2>&1 | tee build.log
@@ -127,11 +119,18 @@ jobs:
             echo "Kernel not copied into unpacked/kernel"
             exit 1
           fi
-          if [ -n "$RAMDISK" ]; then
-            python3 mkbootimg/mkbootimg.py $(cat mkargs.txt) --kernel unpacked/kernel --ramdisk "$RAMDISK" -o boot.img
-          else
-            python3 mkbootimg/mkbootimg.py $(cat mkargs.txt) --kernel unpacked/kernel -o boot.img
-          fi
+          
+          # Safely parse and run mkbootimg using python shlex to respect quotes in mkargs.txt
+          python3 -c "
+          import subprocess, shlex
+          with open('mkargs.txt') as f:
+              cmd_line = f.read().strip()
+          args = shlex.split(cmd_line)
+          full_cmd = ['python3', 'mkbootimg/mkbootimg.py'] + args + ['-o', 'boot.img']
+          print('Running safely:', ' '.join(full_cmd))
+          subprocess.run(full_cmd, check=True)
+          "
+
           printf 'SEANDROIDENFORCE' >> boot.img
           
           # Pad boot.img to exactly 64 MB (67,108,864 bytes) for Samsung A02s partition specs
