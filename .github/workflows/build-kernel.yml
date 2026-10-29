@@ -108,12 +108,31 @@ jobs:
       - name: Repack boot.img
         if: steps.stock.outputs.have == 'true'
         run: |
+          set -euo pipefail
           git clone -q --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg work/mkbootimg
           cd work
-          python3 mkbootimg/unpack_bootimg.py --boot_img stock_boot.img --out unpacked --format=mkbootimg > mkargs.txt
+          python3 mkbootimg/unpack_bootimg.py \
+            --boot_img stock_boot.img \
+            --out unpacked \
+            --format=mkbootimg > mkargs.txt
           cat mkargs.txt
           cp "$GITHUB_WORKSPACE/$KERNEL_IMAGE" unpacked/kernel
-          eval python3 mkbootimg/mkbootimg.py $(cat mkargs.txt) -o boot.img
+          RAMDISK=""
+          for r in unpacked/ramdisk unpacked/ramdisk.cpio unpacked/ramdisk.gz unpacked/ramdisk.cpio.gz; do
+            if [ -f "$r" ]; then
+              RAMDISK="$r"
+              break
+            fi
+          done
+          if [ ! -s unpacked/kernel ]; then
+            echo "Kernel not copied into unpacked/kernel"
+            exit 1
+          fi
+          if [ -n "$RAMDISK" ]; then
+            eval "python3 mkbootimg/mkbootimg.py $(cat mkargs.txt) --kernel unpacked/kernel --ramdisk \"$RAMDISK\" -o boot.img"
+          else
+            eval "python3 mkbootimg/mkbootimg.py $(cat mkargs.txt) --kernel unpacked/kernel -o boot.img"
+          fi
           printf 'SEANDROIDENFORCE' >> boot.img
           tar -H ustar -cf "$GITHUB_WORKSPACE/artifacts/boot.img.tar" boot.img
           ls -lh boot.img "$GITHUB_WORKSPACE/artifacts/boot.img.tar"
