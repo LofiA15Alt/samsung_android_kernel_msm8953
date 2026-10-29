@@ -84,7 +84,6 @@ jobs:
           [ -n "$K" ] || { echo "no kernel image in $B"; exit 1; }
           echo "KERNEL_IMAGE=$K" >> "$GITHUB_ENV"
           cp "$K" artifacts/
-          find "$B/dts" -name '*.dtb' -exec cp {} artifacts/ \; 2>/dev/null || true
           ls -lh artifacts
 
       - name: Get stock boot.img
@@ -129,11 +128,15 @@ jobs:
             exit 1
           fi
           if [ -n "$RAMDISK" ]; then
-            eval "python3 mkbootimg/mkbootimg.py $(cat mkargs.txt) --kernel unpacked/kernel --ramdisk \"$RAMDISK\" -o boot.img"
+            python3 mkbootimg/mkbootimg.py $(cat mkargs.txt) --kernel unpacked/kernel --ramdisk "$RAMDISK" -o boot.img
           else
-            eval "python3 mkbootimg/mkbootimg.py $(cat mkargs.txt) --kernel unpacked/kernel -o boot.img"
+            python3 mkbootimg/mkbootimg.py $(cat mkargs.txt) --kernel unpacked/kernel -o boot.img
           fi
           printf 'SEANDROIDENFORCE' >> boot.img
+          
+          # Pad boot.img to exactly 64 MB (67,108,864 bytes) for Samsung A02s partition specs
+          truncate -s 64M boot.img
+          
           tar -H ustar -cf "$GITHUB_WORKSPACE/artifacts/boot.img.tar" boot.img
           ls -lh boot.img "$GITHUB_WORKSPACE/artifacts/boot.img.tar"
 
