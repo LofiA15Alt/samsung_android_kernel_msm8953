@@ -378,12 +378,14 @@ uint32_t lim_send_probe_rsp_template_to_hal(struct mac_context *mac,
 int sch_gen_timing_advert_frame(struct mac_context *mac_ctx, tSirMacAddr self_addr,
 	uint8_t **buf, uint32_t *timestamp_offset, uint32_t *time_value_offset)
 {
-	tDot11fTimingAdvertisementFrame frame = {0};
+	tDot11fTimingAdvertisementFrame frame;
 	uint32_t payload_size, buf_size;
 	int status;
 	struct qdf_mac_addr wildcard_bssid = {
 		{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
 	};
+
+	memset(&frame, 0, sizeof(frame));
 
 	qdf_mem_zero((uint8_t *)&frame, sizeof(tDot11fTimingAdvertisementFrame));
 
