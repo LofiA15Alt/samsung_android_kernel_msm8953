@@ -1,0 +1,92 @@
+From e96d1f8fbd58f67e9453785153a9addb0e38deeb Mon Sep 17 00:00:00 2001
+From: physwizz <pollockg86@gmail.com>
+Date: Fri, 17 Oct 2025 16:48:40 +1100
+Subject: [PATCH] wifi fix
+
+---
+ arch/arm64/configs/a02q_cis_open_defconfig | 17 +++++++++--------
+ drivers/staging/Kconfig                    |  2 ++
+ drivers/staging/Makefile                   |  1 +
+ kernel/module.c                            |  2 +-
+ 4 files changed, 13 insertions(+), 9 deletions(-)
+
+diff --git a/arch/arm64/configs/a02q_cis_open_defconfig b/arch/arm64/configs/a02q_cis_open_defconfig
+index fa8fed2486..0aec001b03 100644
+--- a/arch/arm64/configs/a02q_cis_open_defconfig
++++ b/arch/arm64/configs/a02q_cis_open_defconfig
+@@ -303,17 +303,17 @@ CONFIG_MODULES=y
+ # CONFIG_MODULE_FORCE_LOAD is not set
+ CONFIG_MODULE_UNLOAD=y
+ CONFIG_MODULE_FORCE_UNLOAD=y
+-CONFIG_MODVERSIONS=y
++CONFIG_MODVERSIONS=n
+ # CONFIG_MODULE_SRCVERSION_ALL is not set
+-CONFIG_MODULE_SIG=y
+-CONFIG_MODULE_SIG_FORCE=y
+-CONFIG_MODULE_SIG_ALL=y
++CONFIG_MODULE_SIG=n
++CONFIG_MODULE_SIG_FORCE=n
++CONFIG_MODULE_SIG_ALL=n
+ # CONFIG_MODULE_SIG_SHA1 is not set
+ # CONFIG_MODULE_SIG_SHA224 is not set
+ # CONFIG_MODULE_SIG_SHA256 is not set
+ # CONFIG_MODULE_SIG_SHA384 is not set
+-CONFIG_MODULE_SIG_SHA512=y
+-CONFIG_MODULE_SIG_HASH="sha512"
++CONFIG_MODULE_SIG_SHA512=n
++CONFIG_MODULE_SIG_HASH=n
+ # CONFIG_MODULE_COMPRESS is not set
+ # CONFIG_TRIM_UNUSED_KSYMS is not set
+ CONFIG_MODULES_TREE_LOOKUP=y
+@@ -733,8 +733,8 @@ CONFIG_INET_DIAG_DESTROY=y
+ CONFIG_TCP_CONG_ADVANCED=y
+ CONFIG_TCP_CONG_BIC=y
+ CONFIG_TCP_CONG_CUBIC=y
+-CONFIG_TCP_CONG_WESTWOOD=m
+-CONFIG_TCP_CONG_HTCP=m
++CONFIG_TCP_CONG_WESTWOOD=y
++CONFIG_TCP_CONG_HTCP=y
+ # CONFIG_TCP_CONG_HSTCP is not set
+ # CONFIG_TCP_CONG_HYBLA is not set
+ # CONFIG_TCP_CONG_VEGAS is not set
+@@ -1720,6 +1720,7 @@ CONFIG_WLAN=y
+ # CONFIG_WLAN_VENDOR_ST is not set
+ # CONFIG_WLAN_VENDOR_TI is not set
+ # CONFIG_WLAN_VENDOR_ZYDAS is not set
++CONFIG_QCA_CLD_WLAN=m
+ # CONFIG_USB_NET_RNDIS_WLAN is not set
+ CONFIG_WCNSS_MEM_PRE_ALLOC=y
+ # CONFIG_CNSS_QCA6290 is not set
+diff --git a/drivers/staging/Kconfig b/drivers/staging/Kconfig
+index f21a5567fb..69bf1a58b2 100644
+--- a/drivers/staging/Kconfig
++++ b/drivers/staging/Kconfig
+@@ -108,4 +108,6 @@ source "drivers/staging/vc04_services/Kconfig"
+ 
+ source "drivers/staging/sti/Kconfig"
+ 
++source "drivers/staging/qcacld-3.0/Kconfig"
++
+ endif # STAGING
+diff --git a/drivers/staging/Makefile b/drivers/staging/Makefile
+index 4230aa5907..7237df25bb 100644
+--- a/drivers/staging/Makefile
++++ b/drivers/staging/Makefile
+@@ -43,3 +43,4 @@ obj-$(CONFIG_KS7010)		+= ks7010/
+ obj-$(CONFIG_GREYBUS)		+= greybus/
+ obj-$(CONFIG_BCM2708_VCHIQ)	+= vc04_services/
+ obj-$(CONFIG_SEC_STI)		+= sti/
++obj-$(CONFIG_QCA_CLD_WLAN)  +=qcacld-3.0/
+diff --git a/kernel/module.c b/kernel/module.c
+index 5eb3bf76d5..579ed15b1d 100644
+--- a/kernel/module.c
++++ b/kernel/module.c
+@@ -2995,7 +2995,7 @@ static int check_modinfo(struct module *mod, struct load_info *info, int flags)
+ 	} else if (!same_magic(modmagic, vermagic, info->index.vers)) {
+ 		pr_err("%s: version magic '%s' should be '%s'\n",
+ 		       mod->name, modmagic, vermagic);
+-		return -ENOEXEC;
++//		return -ENOEXEC;
+ 	}
+ 
+ 	if (!get_modinfo(info, "intree")) {

@@ -1,4 +1,4 @@
-name: Build kernel and boot.img.tar (stable)
+name: Build Miracle MSM8953
 
 on:
   workflow_dispatch:
@@ -238,7 +238,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: kernel-${{ github.run_number }}
+          name: Miracle-MSM8953
           path: artifacts/*
           if-no-files-found: error
 
