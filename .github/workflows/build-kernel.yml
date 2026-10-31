@@ -8,7 +8,7 @@ on:
         required: true
         default: "a02q_defconfig"
       use_author_defconfig:
-        description: "Use a02q touchgrass kernel defconfig (this is exprimental and not recommended ! try at your own risk !!!"
+        description: "Use a02q touchgrass kernel defconfig (this is exprimental and not recommended ! try at your own risk !!!)"
         required: true
         type: boolean
         default: false
