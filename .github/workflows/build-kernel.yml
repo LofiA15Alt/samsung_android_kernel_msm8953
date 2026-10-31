@@ -229,11 +229,6 @@ jobs:
           # boot.img only, as requested
           tar -H ustar -cf "$GITHUB_WORKSPACE/artifacts/boot.img.tar" boot.img
 
-          # second tar with a verification-disabled vbmeta for Odin (AP slot)
-          python3 avb/avbtool.py make_vbmeta_image \
-            --flags 2 --padding_size 4096 --output vbmeta.img
-          tar -H ustar -cf "$GITHUB_WORKSPACE/artifacts/boot_plus_vbmeta.tar" boot.img vbmeta.img
-
           ls -lh boot.img stock_boot.img "$GITHUB_WORKSPACE"/artifacts/*.tar
 
       - uses: actions/upload-artifact@v4
