@@ -24,7 +24,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 120
+    timeout-minutes: 67
 
     env:
       ARCH: arm64
@@ -149,7 +149,7 @@ jobs:
           echo "Kernel release: $(mk -s kernelrelease 2>/dev/null | tail -n1)"
           grep -E '^(# )?CONFIG_(LOCALVERSION|DM_VERITY|DM_ANDROID_VERITY|CC_STACKPROTECTOR|LTO|CC_OPTIMIZE|MODVERSIONS|MODULE_FORCE|BUILD_ARM64_APPENDED_DTB_IMAGE)' out/.config || true
           if grep -q '^# CONFIG_DM_VERITY is not set' out/.config; then
-            echo "::warning::CONFIG_DM_VERITY is disabled. With verified boot still enabled on the phone this commonly causes a bootloop. Flash the vbmeta tar too."
+            echo "::warning::CONFIG_DM_VERITY is disabled. With verified boot still enabled on the phone this commonly causes a bootloop. Flash a disabled vbmeta tar."
           fi
 
       - name: Build
@@ -179,14 +179,12 @@ jobs:
             retry wget -q -O work/stock_boot.img "$STOCK_BOOT_URL"
           elif [ -f s-kernel/boot.img ]; then
             cp s-kernel/boot.img work/stock_boot.img
-          elif [ -f stock/boot.img ]; then
-            cp stock/boot.img work/stock_boot.img
           fi
           if [ -s work/stock_boot.img ]; then
             echo "have=true" >> "$GITHUB_OUTPUT"
           else
             echo "have=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No stock boot.img found (s-kernel/boot.img, stock/boot.img or stock_boot_url), only the raw kernel was built."
+            echo "::warning::No stock boot.img found (s-kernel/boot.img or stock_boot_url), only the raw kernel was built."
           fi
 
       - name: Repack boot.img
@@ -196,7 +194,6 @@ jobs:
           retry git clone -q --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg work/mkbootimg
           retry git clone -q --depth 1 https://android.googlesource.com/platform/external/avb work/avb
           cd work
-
           python3 mkbootimg/unpack_bootimg.py \
             --boot_img stock_boot.img \
             --out unpacked \
@@ -206,12 +203,10 @@ jobs:
           echo "-----------------------------------"
           ls -la unpacked
           cp mkargs.txt "$GITHUB_WORKSPACE/artifacts/mkargs.txt"
-
           OLD=$(stat -c %s unpacked/kernel)
           NEW=$(stat -c %s "$GITHUB_WORKSPACE/$KERNEL_IMAGE")
           echo "stock kernel: $OLD bytes, new kernel: $NEW bytes"
           cp "$GITHUB_WORKSPACE/$KERNEL_IMAGE" unpacked/kernel
-
           python3 - <<'PY'
           import shlex, subprocess
           args = shlex.split(open('mkargs.txt').read())
@@ -219,22 +214,19 @@ jobs:
           print('Running:', ' '.join(cmd))
           subprocess.run(cmd, check=True)
           PY
-
           # Samsung marker: only add it if the stock image had it
           if tail -c 16 stock_boot.img | grep -aq 'SEANDROIDENFORCE'; then
             printf 'SEANDROIDENFORCE' >> boot.img
             echo "Appended SEANDROIDENFORCE marker"
           fi
-
           # boot.img only, as requested
-          tar -H ustar -cf "$GITHUB_WORKSPACE/artifacts/boot.img.tar" boot.img
-
-          ls -lh boot.img stock_boot.img "$GITHUB_WORKSPACE"/artifacts/*.tar
+          tar -H ustar -cf "$GITHUB_WORKSPACE/artifacts/krnl/Miracle-MSM8953.tar" boot.img
+          ls -lh boot.img stock_boot.img "$GITHUB_WORKSPACE"/artifacts/krnl/*.tar
 
       - uses: actions/upload-artifact@v4
         with:
           name: Miracle-MSM8953
-          path: artifacts/*
+          path: artifacts/krnl/*
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
