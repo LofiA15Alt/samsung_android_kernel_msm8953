@@ -220,6 +220,7 @@ jobs:
             echo "Appended SEANDROIDENFORCE marker"
           fi
           # boot.img only, as requested
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/krnl"
           tar -H ustar -cf "$GITHUB_WORKSPACE/artifacts/krnl/Miracle-MSM8953.tar" boot.img
           ls -lh boot.img stock_boot.img "$GITHUB_WORKSPACE"/artifacts/krnl/*.tar
 
