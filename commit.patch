@@ -1,5 +1,0 @@
-{
-  "message": "The patch is taking too long to generate.",
-  "documentation_url": "https://docs.github.com/rest/commits/commits#get-a-commit",
-  "status": "422"
-}
