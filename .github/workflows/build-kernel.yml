@@ -4,16 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       defconfig:
-        description: "Defconfig name"
+        description: "Defconfig name (for permissive type [a02q_permissive_defconfig])"
         required: true
         default: "a02q_defconfig"
       use_author_defconfig:
-        description: "Replace the defconfig with the original author's before building (A/B test)"
+        description: "Use a02q touchgrass kernel defconfig (this is exprimental and not recommended ! try at your own risk !!!"
         required: true
         type: boolean
         default: false
       stock_boot_url:
-        description: "Optional direct URL to stock boot.img (otherwise s-kernel/boot.img or stock/boot.img from the repo is used)"
+        description: "Optional direct URL to stock boot.img (otherwise s-kernel/boot.img from the repo is used)"
         required: false
         default: ""
 
