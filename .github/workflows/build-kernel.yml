@@ -12,6 +12,14 @@ on:
         required: true
         type: boolean
         default: false
+      compiler:
+        description: "Compiler (clang uses AOSP clang r450784d, binutils from GCC 4.9)"
+        required: true
+        type: choice
+        options:
+          - gcc
+          - clang
+        default: gcc
       stock_boot_url:
         description: "Optional direct URL to stock boot.img (otherwise s-kernel/boot.img from the repo is used)"
         required: false
@@ -30,6 +38,7 @@ jobs:
       ARCH: arm64
       DEFCONFIG: ${{ github.event.inputs.defconfig || 'a02q_defconfig' }}
       USE_AUTHOR_DEFCONFIG: ${{ github.event.inputs.use_author_defconfig || 'false' }}
+      COMPILER: ${{ github.event.inputs.compiler || 'gcc' }}
       STOCK_BOOT_URL: ${{ github.event.inputs.stock_boot_url }}
       ALLOW_UNSAFE_WARNINGS: 1
       AUTHOR_DEFCONFIG_URL: https://raw.githubusercontent.com/micr0softstore/samsung_android_kernel_a02q/main/arch/arm64/configs/a02q_defconfig
@@ -58,11 +67,14 @@ jobs:
           EOF
           cat > "$RUNNER_TEMP/mk.sh" <<'EOF'
           mk() {
-            local dtc py2
+            local dtc py2 cc=()
             if [ -f tools/dtc ]; then chmod +x tools/dtc; dtc="$PWD/tools/dtc"; else dtc="$(command -v dtc)"; fi
             py2="$(command -v python2 || command -v python3)"
+            if [ "$COMPILER" = "clang" ]; then
+              cc=(CC="$PWD/clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu-)
+            fi
             make -j"$(nproc)" O="$PWD/out" ARCH=arm64 \
-              CROSS_COMPILE="$PWD/toolchain/bin/aarch64-linux-android-" \
+              CROSS_COMPILE="$PWD/toolchain/bin/aarch64-linux-android-" "${cc[@]}" \
               "HOSTCC=gcc -fcommon -Wno-deprecated-declarations" \
               PYTHON="$py2" DTC_EXT="$dtc" CONFIG_BUILD_ARM64_DT_OVERLAY=y "$@"
           }
@@ -84,7 +96,7 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends python2 || echo "python2 not available, using python3"
 
       # The original author's build_kernel.sh builds with the Android GCC 4.9 toolchain
-      # (toolchain/bin/aarch64-linux-android-). Same compiler here, no clang.
+      # (toolchain/bin/aarch64-linux-android-). With clang it still provides as/ld.
       - name: Get GCC 4.9 toolchain
         run: |
           GOOGLE=https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
@@ -116,6 +128,13 @@ jobs:
           fi
           sed -i '/self.print_deprecation_warning()$/d' toolchain/bin/aarch64-linux-android-gcc
           toolchain/bin/aarch64-linux-android-gcc --version | head -n1
+
+      - name: Get clang
+        if: env.COMPILER == 'clang'
+        run: |
+          source "$RUNNER_TEMP/retry.sh"
+          retry git clone -q --depth=1 https://gitlab.com/tejas101k/clang-r450784d.git clang
+          clang/bin/clang --version | head -n1
 
       - name: Check defconfig exists
         run: |
