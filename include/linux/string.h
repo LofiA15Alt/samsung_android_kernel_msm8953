@@ -29,6 +29,15 @@ size_t strlcpy(char *, const char *, size_t);
 #ifndef __HAVE_ARCH_STRSCPY
 ssize_t strscpy(char *, const char *, size_t);
 #endif
+#ifndef __HAVE_ARCH_STRSCPY_PAD
+static inline ssize_t strscpy_pad(char *dest, const char *src, size_t count)
+{
+	ssize_t written = strscpy(dest, src, count);
+	if (written >= 0 && written < count)
+		memset(dest + written, 0, count - written);
+	return written;
+}
+#endif
 #ifndef __HAVE_ARCH_STRCAT
 extern char * strcat(char *, const char *);
 #endif
