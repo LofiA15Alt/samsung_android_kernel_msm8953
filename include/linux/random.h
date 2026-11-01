@@ -81,6 +81,7 @@ static inline unsigned long get_random_canary(void)
 	return val & CANARY_MASK;
 }
 
+<<<<<<< HEAD
 /* Calls wait_for_random_bytes() and then calls get_random_bytes(buf, nbytes).
  * Returns the result of the call to wait_for_random_bytes. */
 static inline int get_random_bytes_wait(void *buf, int nbytes)
@@ -104,6 +105,8 @@ declare_get_random_var_wait(int)
 declare_get_random_var_wait(long)
 #undef declare_get_random_var
 
+=======
+>>>>>>> parent of 23b3e0e5e (random: add get_random_{bytes,u32,u64,int,long,once}_wait family)
 unsigned long randomize_page(unsigned long start, unsigned long range);
 
 /*
