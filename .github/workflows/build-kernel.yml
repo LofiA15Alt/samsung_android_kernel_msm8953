@@ -150,13 +150,54 @@ jobs:
       - name: Get GCC 5.1 toolchain (Linaro 5.1-2015.08)
         if: env.GCC_VERSION == '5.1'
         run: |
-          source "$RUNNER_TEMP/retry.sh"
-          URL=https://releases.linaro.org/components/toolchain/binaries/5.1-2015.08/aarch64-linux-gnu/gcc-linaro-5.1-2015.08-x86_64_aarch64-linux-gnu.tar.xz
+          # A server error page also "downloads" fine, so check that the file really is an xz archive.
+          fetch_xz() {
+            local url="$1" dest="$2"
+            rm -f "$dest"
+            echo "Downloading $url"
+            if ! wget -q --tries=2 --timeout=120 -U "Mozilla/5.0" -O "$dest" "$url"; then
+              echo "download failed"
+              return 1
+            fi
+            if xz -t "$dest" 2>/dev/null; then
+              echo "OK, valid xz archive ($(stat -c %s "$dest") bytes)"
+              return 0
+            fi
+            echo "Not a valid xz file. Size: $(stat -c %s "$dest") bytes. Start of the file:"
+            head -c 300 "$dest" | tr -c '[:print:]\n' '?'
+            echo
+            return 1
+          }
+
+          P51=components/toolchain/binaries/5.1-2015.08/aarch64-linux-gnu/gcc-linaro-5.1-2015.08-x86_64_aarch64-linux-gnu.tar.xz
+          ok=0
+          for u in \
+            "https://releases.linaro.org/$P51" \
+            "http://releases.linaro.org/$P51" \
+            "https://releases-ie.linaro.org/$P51" \
+            "http://releases-ie.linaro.org/$P51"; do
+            if fetch_xz "$u" work/gcc.tar.xz; then ok=1; break; fi
+          done
+
+          if [ "$ok" != 1 ]; then
+            echo "::warning::Linaro GCC 5.1 could not be downloaded, falling back to another Linaro GCC 5.x"
+            for u in \
+              "http://releases.linaro.org/components/toolchain/binaries/5.2-2015.11-2/aarch64-linux-gnu/gcc-linaro-5.2-2015.11-2-x86_64_aarch64-linux-gnu.tar.xz" \
+              "https://releases.linaro.org/components/toolchain/binaries/5.4-2017.05/aarch64-linux-gnu/gcc-linaro-5.4.1-2017.05-x86_64_aarch64-linux-gnu.tar.xz" \
+              "https://releases.linaro.org/components/toolchain/binaries/5.5-2017.10/aarch64-linux-gnu/gcc-linaro-5.5.0-2017.10-x86_64_aarch64-linux-gnu.tar.xz"; do
+              if fetch_xz "$u" work/gcc.tar.xz; then ok=1; break; fi
+            done
+          fi
+
+          if [ "$ok" != 1 ]; then
+            echo "::error::Could not download any Linaro GCC 5.x toolchain. See the log above for what the server returned."
+            exit 1
+          fi
+
           rm -rf toolchain
           mkdir toolchain
-          retry wget -q -O work/gcc51.tar.xz "$URL"
-          tar -xf work/gcc51.tar.xz -C toolchain --strip-components=1
-          rm work/gcc51.tar.xz
+          tar -xf work/gcc.tar.xz -C toolchain --strip-components=1
+          rm -f work/gcc.tar.xz
           toolchain/bin/aarch64-linux-gnu-gcc --version | head -n1
 
       - name: Get clang
