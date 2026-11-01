@@ -1,5 +1,8 @@
-/* SPDX-License-Identifier: GPL-2.0 */
-
+/*
+ * include/linux/random.h
+ *
+ * Include file for the random number generator.
+ */
 #ifndef _LINUX_RANDOM_H
 #define _LINUX_RANDOM_H
 
