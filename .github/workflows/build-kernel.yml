@@ -13,13 +13,21 @@ on:
         type: boolean
         default: false
       compiler:
-        description: "Compiler (clang uses AOSP clang r450784d, binutils from GCC 4.9)"
+        description: "Compiler (clang uses AOSP clang r450784d, binutils from GCC)"
         required: true
         type: choice
         options:
           - gcc
           - clang
         default: gcc
+      gcc_version:
+        description: "GCC version (4.9 = Android prebuilt like the original author, 5.1 = Linaro GCC 5.1-2015.08)"
+        required: true
+        type: choice
+        options:
+          - "5.1"
+          - "4.9"
+        default: "5.1"
       upload_modules:
         description: "Also upload the built kernel modules (.ko files) as a separate artifact"
         required: true
@@ -44,6 +52,7 @@ jobs:
       DEFCONFIG: ${{ github.event.inputs.defconfig || 'a02q_defconfig' }}
       USE_AUTHOR_DEFCONFIG: ${{ github.event.inputs.use_author_defconfig || 'false' }}
       COMPILER: ${{ github.event.inputs.compiler || 'gcc' }}
+      GCC_VERSION: ${{ github.event.inputs.gcc_version || '4.9' }}
       UPLOAD_MODULES: ${{ github.event.inputs.upload_modules || 'false' }}
       STOCK_BOOT_URL: ${{ github.event.inputs.stock_boot_url }}
       ALLOW_UNSAFE_WARNINGS: 1
@@ -73,14 +82,15 @@ jobs:
           EOF
           cat > "$RUNNER_TEMP/mk.sh" <<'EOF'
           mk() {
-            local dtc py2 cc=()
+            local dtc py2 prefix cc=()
+            if [ "$GCC_VERSION" = "5.1" ]; then prefix=aarch64-linux-gnu-; else prefix=aarch64-linux-android-; fi
             if [ -f tools/dtc ]; then chmod +x tools/dtc; dtc="$PWD/tools/dtc"; else dtc="$(command -v dtc)"; fi
             py2="$(command -v python2 || command -v python3)"
             if [ "$COMPILER" = "clang" ]; then
               cc=(CC="$PWD/clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu-)
             fi
             make -j"$(nproc)" O="$PWD/out" ARCH=arm64 \
-              CROSS_COMPILE="$PWD/toolchain/bin/aarch64-linux-android-" "${cc[@]}" \
+              CROSS_COMPILE="$PWD/toolchain/bin/$prefix" "${cc[@]}" \
               "HOSTCC=gcc -fcommon -Wno-deprecated-declarations" \
               PYTHON="$py2" DTC_EXT="$dtc" CONFIG_BUILD_ARM64_DT_OVERLAY=y "$@"
           }
@@ -104,6 +114,7 @@ jobs:
       # The original author's build_kernel.sh builds with the Android GCC 4.9 toolchain
       # (toolchain/bin/aarch64-linux-android-). With clang it still provides as/ld.
       - name: Get GCC 4.9 toolchain
+        if: env.GCC_VERSION == '4.9'
         run: |
           GOOGLE=https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
           LINEAGE=https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9
@@ -134,6 +145,19 @@ jobs:
           fi
           sed -i '/self.print_deprecation_warning()$/d' toolchain/bin/aarch64-linux-android-gcc
           toolchain/bin/aarch64-linux-android-gcc --version | head -n1
+
+      # Linaro's GCC 5.1 uses the aarch64-linux-gnu- prefix (mk.sh picks it automatically)
+      - name: Get GCC 5.1 toolchain (Linaro 5.1-2015.08)
+        if: env.GCC_VERSION == '5.1'
+        run: |
+          source "$RUNNER_TEMP/retry.sh"
+          URL=https://releases.linaro.org/components/toolchain/binaries/5.1-2015.08/aarch64-linux-gnu/gcc-linaro-5.1-2015.08-x86_64_aarch64-linux-gnu.tar.xz
+          rm -rf toolchain
+          mkdir toolchain
+          retry wget -q -O work/gcc51.tar.xz "$URL"
+          tar -xf work/gcc51.tar.xz -C toolchain --strip-components=1
+          rm work/gcc51.tar.xz
+          toolchain/bin/aarch64-linux-gnu-gcc --version | head -n1
 
       - name: Get clang
         if: env.COMPILER == 'clang'
@@ -202,7 +226,7 @@ jobs:
         if: env.UPLOAD_MODULES == 'true'
         run: |
           mkdir -p artifacts/modules
-          STRIP="$PWD/toolchain/bin/aarch64-linux-android-strip"
+          STRIP="$(ls "$PWD"/toolchain/bin/aarch64-linux-*-strip | head -n1)"
 
           dups=$(find out -name '*.ko' -printf '%f\n' | sort | uniq -d)
           if [ -n "$dups" ]; then
