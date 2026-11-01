@@ -13,21 +13,25 @@ on:
         type: boolean
         default: false
       compiler:
-        description: "Compiler (clang uses AOSP clang r450784d, binutils from GCC)"
+        description: "Compiler (clang uses AOSP clang r450784d, binutils from GCC). Clang cannot be combined with gcc-5.3-ubuntu"
         required: true
         type: choice
         options:
           - gcc
           - clang
         default: gcc
-      gcc_version:
-        description: "GCC version (4.9 = Android prebuilt like the original author, 5.1 = Linaro GCC 5.1-2015.08)"
+      gcc_source:
+        description: "GCC: android-4.9 = what the original author uses, gcc-5.3-ubuntu = GCC 5.3.1 from Ubuntu 16.04 (built inside a container)"
         required: true
         type: choice
         options:
-          - "5.1"
-          - "4.9"
-        default: "5.1"
+          - android-4.9
+          - gcc-5.3-ubuntu
+        default: gcc-5.3-ubuntu
+      toolchain_url:
+        description: "Optional direct link to your own aarch64 GCC toolchain (.tar.xz/.tar.gz/.tar.bz2), overrides gcc_source"
+        required: false
+        default: ""
       upload_modules:
         description: "Also upload the built kernel modules (.ko files) as a separate artifact"
         required: true
@@ -52,7 +56,8 @@ jobs:
       DEFCONFIG: ${{ github.event.inputs.defconfig || 'a02q_defconfig' }}
       USE_AUTHOR_DEFCONFIG: ${{ github.event.inputs.use_author_defconfig || 'false' }}
       COMPILER: ${{ github.event.inputs.compiler || 'gcc' }}
-      GCC_VERSION: ${{ github.event.inputs.gcc_version || '4.9' }}
+      TOOLCHAIN_URL: ${{ github.event.inputs.toolchain_url }}
+      USE_DOCKER_GCC: ${{ (github.event.inputs.toolchain_url == '' && github.event.inputs.gcc_source == 'gcc-5.3-ubuntu') && '1' || '0' }}
       UPLOAD_MODULES: ${{ github.event.inputs.upload_modules || 'false' }}
       STOCK_BOOT_URL: ${{ github.event.inputs.stock_boot_url }}
       ALLOW_UNSAFE_WARNINGS: 1
@@ -82,15 +87,26 @@ jobs:
           EOF
           cat > "$RUNNER_TEMP/mk.sh" <<'EOF'
           mk() {
-            local dtc py2 prefix cc=()
-            if [ "$GCC_VERSION" = "5.1" ]; then prefix=aarch64-linux-gnu-; else prefix=aarch64-linux-android-; fi
-            if [ -f tools/dtc ]; then chmod +x tools/dtc; dtc="$PWD/tools/dtc"; else dtc="$(command -v dtc)"; fi
-            py2="$(command -v python2 || command -v python3)"
-            if [ "$COMPILER" = "clang" ]; then
-              cc=(CC="$PWD/clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu-)
+            local dtc py2 prefix crossc runner=() cc=()
+            if [ "$USE_DOCKER_GCC" = "1" ]; then
+              # GCC 5.3 from Ubuntu 16.04, everything runs inside the container
+              crossc="aarch64-linux-gnu-"
+              py2="python2"
+              dtc="${DOCKER_DTC:-dtc}"
+              runner=(docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e ALLOW_UNSAFE_WARNINGS=1 \
+                      -v "$PWD":"$PWD" -w "$PWD" kbuild-xenial)
+            else
+              # works for aarch64-linux-android-, aarch64-linux-gnu-, aarch64-none-linux-gnu- and so on
+              prefix="$(basename "$(ls "$PWD"/toolchain/bin/aarch64-*-gcc | head -n1)" gcc)"
+              crossc="$PWD/toolchain/bin/$prefix"
+              if [ -f tools/dtc ]; then chmod +x tools/dtc; dtc="$PWD/tools/dtc"; else dtc="$(command -v dtc)"; fi
+              py2="$(command -v python2 || command -v python3)"
+              if [ "$COMPILER" = "clang" ]; then
+                cc=(CC="$PWD/clang/bin/clang" CLANG_TRIPLE=aarch64-linux-gnu-)
+              fi
             fi
-            make -j"$(nproc)" O="$PWD/out" ARCH=arm64 \
-              CROSS_COMPILE="$PWD/toolchain/bin/$prefix" "${cc[@]}" \
+            "${runner[@]}" make -j"$(nproc)" O="$PWD/out" ARCH=arm64 \
+              CROSS_COMPILE="$crossc" "${cc[@]}" \
               "HOSTCC=gcc -fcommon -Wno-deprecated-declarations" \
               PYTHON="$py2" DTC_EXT="$dtc" CONFIG_BUILD_ARM64_DT_OVERLAY=y "$@"
           }
@@ -108,13 +124,13 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 update
           sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
             build-essential bc bison flex libssl-dev libelf-dev \
-            device-tree-compiler python3 cpio xz-utils git wget binutils
+            device-tree-compiler python3 cpio xz-utils bzip2 git wget binutils
           sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends python2 || echo "python2 not available, using python3"
 
       # The original author's build_kernel.sh builds with the Android GCC 4.9 toolchain
       # (toolchain/bin/aarch64-linux-android-). With clang it still provides as/ld.
       - name: Get GCC 4.9 toolchain
-        if: env.GCC_VERSION == '4.9'
+        if: env.TOOLCHAIN_URL == '' && env.USE_DOCKER_GCC == '0'
         run: |
           GOOGLE=https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
           LINEAGE=https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9
@@ -146,59 +162,77 @@ jobs:
           sed -i '/self.print_deprecation_warning()$/d' toolchain/bin/aarch64-linux-android-gcc
           toolchain/bin/aarch64-linux-android-gcc --version | head -n1
 
-      # Linaro's GCC 5.1 uses the aarch64-linux-gnu- prefix (mk.sh picks it automatically)
-      - name: Get GCC 5.1 toolchain (Linaro 5.1-2015.08)
-        if: env.GCC_VERSION == '5.1'
+      # GCC 5.3.1 is the oldest GCC 5.x (after 5.1) that can still be downloaded from a live archive.
+      # It is installed inside an Ubuntu 16.04 container, and the kernel is built inside it too.
+      - name: Build GCC 5.3 container (Ubuntu 16.04)
+        if: env.USE_DOCKER_GCC == '1'
         run: |
-          # A server error page also "downloads" fine, so check that the file really is an xz archive.
-          fetch_xz() {
-            local url="$1" dest="$2"
-            rm -f "$dest"
-            echo "Downloading $url"
-            if ! wget -q --tries=2 --timeout=120 -U "Mozilla/5.0" -O "$dest" "$url"; then
-              echo "download failed"
-              return 1
-            fi
-            if xz -t "$dest" 2>/dev/null; then
-              echo "OK, valid xz archive ($(stat -c %s "$dest") bytes)"
-              return 0
-            fi
-            echo "Not a valid xz file. Size: $(stat -c %s "$dest") bytes. Start of the file:"
-            head -c 300 "$dest" | tr -c '[:print:]\n' '?'
-            echo
-            return 1
-          }
-
-          P51=components/toolchain/binaries/5.1-2015.08/aarch64-linux-gnu/gcc-linaro-5.1-2015.08-x86_64_aarch64-linux-gnu.tar.xz
-          ok=0
-          for u in \
-            "https://releases.linaro.org/$P51" \
-            "http://releases.linaro.org/$P51" \
-            "https://releases-ie.linaro.org/$P51" \
-            "http://releases-ie.linaro.org/$P51"; do
-            if fetch_xz "$u" work/gcc.tar.xz; then ok=1; break; fi
-          done
-
-          if [ "$ok" != 1 ]; then
-            echo "::warning::Linaro GCC 5.1 could not be downloaded, falling back to another Linaro GCC 5.x"
-            for u in \
-              "http://releases.linaro.org/components/toolchain/binaries/5.2-2015.11-2/aarch64-linux-gnu/gcc-linaro-5.2-2015.11-2-x86_64_aarch64-linux-gnu.tar.xz" \
-              "https://releases.linaro.org/components/toolchain/binaries/5.4-2017.05/aarch64-linux-gnu/gcc-linaro-5.4.1-2017.05-x86_64_aarch64-linux-gnu.tar.xz" \
-              "https://releases.linaro.org/components/toolchain/binaries/5.5-2017.10/aarch64-linux-gnu/gcc-linaro-5.5.0-2017.10-x86_64_aarch64-linux-gnu.tar.xz"; do
-              if fetch_xz "$u" work/gcc.tar.xz; then ok=1; break; fi
-            done
-          fi
-
-          if [ "$ok" != 1 ]; then
-            echo "::error::Could not download any Linaro GCC 5.x toolchain. See the log above for what the server returned."
+          if [ "$COMPILER" = "clang" ]; then
+            echo "::error::clang cannot be combined with gcc-5.3-ubuntu. Pick compiler=gcc."
             exit 1
           fi
+          mkdir -p work/docker
+          cat > work/docker/Dockerfile <<'EOF'
+          FROM ubuntu:16.04
+          ENV DEBIAN_FRONTEND=noninteractive
+          RUN apt-get update || ( sed -i 's|archive.ubuntu.com|old-releases.ubuntu.com|; s|security.ubuntu.com|old-releases.ubuntu.com|' /etc/apt/sources.list && apt-get update )
+          RUN apt-get install -y --no-install-recommends \
+                build-essential bc bison flex libssl-dev libelf-dev device-tree-compiler \
+                python python2.7 cpio xz-utils bzip2 git ca-certificates binutils-aarch64-linux-gnu
+          RUN ( apt-get install -y --no-install-recommends \
+                  gcc-5-aarch64-linux-gnu=5.3.1-14ubuntu2cross1 \
+                  cpp-5-aarch64-linux-gnu=5.3.1-14ubuntu2cross1 \
+                  gcc-5-aarch64-linux-gnu-base=5.3.1-14ubuntu2cross1 \
+                  gcc-aarch64-linux-gnu \
+                || ( echo "pinned GCC 5.3.1 not available, using the newest GCC 5 from Ubuntu 16.04" \
+                     && apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu ) ) \
+              && rm -rf /var/lib/apt/lists/*
+          EOF
+          docker build -t kbuild-xenial work/docker
+          echo "Compiler in the container:"
+          docker run --rm kbuild-xenial aarch64-linux-gnu-gcc --version | head -n1
+          # use the kernel's own prebuilt dtc if it runs inside the container, otherwise the container's dtc
+          DTC=dtc
+          if [ -f tools/dtc ]; then
+            chmod +x tools/dtc
+            if docker run --rm -v "$PWD":"$PWD" -w "$PWD" kbuild-xenial "$PWD/tools/dtc" --version > /dev/null 2>&1; then
+              DTC="$PWD/tools/dtc"
+            fi
+          fi
+          echo "DOCKER_DTC=$DTC" >> "$GITHUB_ENV"
+          echo "Using dtc: $DTC"
 
+      # Use this to try another GCC (for example a GCC 5.x tarball you host yourself).
+      - name: Get custom toolchain from URL
+        if: env.TOOLCHAIN_URL != ''
+        run: |
+          source "$RUNNER_TEMP/retry.sh"
+          echo "Downloading $TOOLCHAIN_URL"
+          retry wget -q --tries=2 --timeout=120 -U "Mozilla/5.0" -O work/toolchain.archive "$TOOLCHAIN_URL"
+          if ! tar -tf work/toolchain.archive > /dev/null 2>&1; then
+            echo "::error::The downloaded file is not a tar archive. Size: $(stat -c %s work/toolchain.archive) bytes. It starts with:"
+            head -c 300 work/toolchain.archive | tr -c '[:print:]\n' '?'
+            echo
+            exit 1
+          fi
           rm -rf toolchain
           mkdir toolchain
-          tar -xf work/gcc.tar.xz -C toolchain --strip-components=1
-          rm -f work/gcc.tar.xz
-          toolchain/bin/aarch64-linux-gnu-gcc --version | head -n1
+          tar -xf work/toolchain.archive -C toolchain
+          rm -f work/toolchain.archive
+          # archives usually contain one top folder, move its contents up so toolchain/bin exists
+          if [ ! -d toolchain/bin ]; then
+            inner="$(find toolchain -mindepth 2 -maxdepth 2 -type d -name bin | head -n1)"
+            if [ -z "$inner" ]; then
+              echo "::error::No bin/ folder found inside the toolchain archive"
+              exit 1
+            fi
+            mv "$(dirname "$inner")" work/tc_inner
+            rm -rf toolchain
+            mv work/tc_inner toolchain
+          fi
+          GCC_BIN="$(ls "$PWD"/toolchain/bin/aarch64-*-gcc | head -n1)"
+          echo "Using $GCC_BIN"
+          "$GCC_BIN" --version | head -n1
 
       - name: Get clang
         if: env.COMPILER == 'clang'
@@ -267,7 +301,6 @@ jobs:
         if: env.UPLOAD_MODULES == 'true'
         run: |
           mkdir -p artifacts/modules
-          STRIP="$(ls "$PWD"/toolchain/bin/aarch64-linux-*-strip | head -n1)"
 
           dups=$(find out -name '*.ko' -printf '%f\n' | sort | uniq -d)
           if [ -n "$dups" ]; then
@@ -276,7 +309,13 @@ jobs:
           find out -name '*.ko' -exec cp --backup=numbered {} artifacts/modules/ \;
 
           # smaller upload: drop debug info only, symbols stay so the modules still load
-          find artifacts/modules -name '*.ko' -exec "$STRIP" --strip-debug {} \;
+          if [ "$USE_DOCKER_GCC" = "1" ]; then
+            docker run --rm --user "$(id -u):$(id -g)" -v "$PWD":"$PWD" -w "$PWD" kbuild-xenial \
+              sh -c "find artifacts/modules -name '*.ko' -exec aarch64-linux-gnu-strip --strip-debug {} +"
+          else
+            STRIP="$(ls "$PWD"/toolchain/bin/aarch64-*-strip | head -n1)"
+            find artifacts/modules -name '*.ko' -exec "$STRIP" --strip-debug {} \;
+          fi
 
           echo "---- kernel modules built (file, size, vermagic) ----"
           for f in artifacts/modules/*.ko; do
