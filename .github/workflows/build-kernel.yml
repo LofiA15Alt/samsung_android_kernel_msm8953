@@ -114,6 +114,7 @@ jobs:
             echo "::error::Could not get an aarch64-linux-android-4.9 toolchain from any source"
             exit 1
           fi
+          sed -i '/self.print_deprecation_warning()$/d' toolchain/bin/aarch64-linux-android-gcc
           toolchain/bin/aarch64-linux-android-gcc --version | head -n1
 
       - name: Check defconfig exists
