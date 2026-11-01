@@ -20,6 +20,11 @@ on:
           - gcc
           - clang
         default: gcc
+      upload_modules:
+        description: "Also upload the built kernel modules (.ko files) as a separate artifact"
+        required: true
+        type: boolean
+        default: false
       stock_boot_url:
         description: "Optional direct URL to stock boot.img (otherwise s-kernel/boot.img from the repo is used)"
         required: false
@@ -39,6 +44,7 @@ jobs:
       DEFCONFIG: ${{ github.event.inputs.defconfig || 'a02q_defconfig' }}
       USE_AUTHOR_DEFCONFIG: ${{ github.event.inputs.use_author_defconfig || 'false' }}
       COMPILER: ${{ github.event.inputs.compiler || 'gcc' }}
+      UPLOAD_MODULES: ${{ github.event.inputs.upload_modules || 'false' }}
       STOCK_BOOT_URL: ${{ github.event.inputs.stock_boot_url }}
       ALLOW_UNSAFE_WARNINGS: 1
       AUTHOR_DEFCONFIG_URL: https://raw.githubusercontent.com/micr0softstore/samsung_android_kernel_a02q/main/arch/arm64/configs/a02q_defconfig
@@ -191,6 +197,31 @@ jobs:
           ls -lh "$K"
           strings -a "$K" | grep -m1 'Linux version' || true
 
+      # The normal build already compiles every driver set to =m, so this only collects them.
+      - name: Collect kernel modules
+        if: env.UPLOAD_MODULES == 'true'
+        run: |
+          mkdir -p artifacts/modules
+          STRIP="$PWD/toolchain/bin/aarch64-linux-android-strip"
+
+          dups=$(find out -name '*.ko' -printf '%f\n' | sort | uniq -d)
+          if [ -n "$dups" ]; then
+            echo "::warning::Several modules share a file name, extra copies get a numbered suffix: $dups"
+          fi
+          find out -name '*.ko' -exec cp --backup=numbered {} artifacts/modules/ \;
+
+          # smaller upload: drop debug info only, symbols stay so the modules still load
+          find artifacts/modules -name '*.ko' -exec "$STRIP" --strip-debug {} \;
+
+          echo "---- kernel modules built (file, size, vermagic) ----"
+          for f in artifacts/modules/*.ko; do
+            if [ ! -e "$f" ]; then
+              echo "::warning::No .ko files were built. Every driver is built into the kernel (=y) or CONFIG_MODULES is off."
+              break
+            fi
+            echo "$(basename "$f")  $(stat -c %s "$f") bytes  $(strings -a "$f" | grep -m1 '^vermagic=' || echo 'vermagic not found')"
+          done | tee artifacts/modules/modules_list.txt
+
       - name: Get stock boot.img
         id: stock
         run: |
@@ -249,6 +280,14 @@ jobs:
           name: Miracle-MSM8953
           path: artifacts/krnl/*
           if-no-files-found: error
+
+      - name: Upload kernel modules
+        if: env.UPLOAD_MODULES == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Miracle-MSM8953-modules
+          path: artifacts/modules/*
+          if-no-files-found: warn
 
       - uses: actions/upload-artifact@v4
         if: always()
