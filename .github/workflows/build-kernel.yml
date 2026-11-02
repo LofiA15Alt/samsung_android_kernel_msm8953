@@ -27,7 +27,7 @@ on:
         options:
           - android-4.9
           - gcc-5.3-ubuntu
-        default: gcc-5.3-ubuntu
+        default: android-4.9
       toolchain_url:
         description: "Optional direct link to your own aarch64 GCC toolchain (.tar.xz/.tar.gz/.tar.bz2), overrides gcc_source"
         required: false
@@ -39,6 +39,10 @@ on:
         default: false
       stock_boot_url:
         description: "Optional direct URL to stock boot.img (otherwise s-kernel/boot.img from the repo is used)"
+        required: false
+        default: ""
+      source_ref:
+        description: "For bisecting: build this commit instead of the branch (paste the FULL 40-character commit hash). Empty = the selected branch"
         required: false
         default: ""
 
@@ -70,7 +74,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.inputs.source_ref || github.ref }}
           fetch-depth: 1
+
+      # Older commits may not contain s-kernel/boot.img, so take it from the branch the workflow runs on.
+      - name: Get stock boot.img from the workflow branch
+        if: github.event.inputs.source_ref != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          path: _stock
+          sparse-checkout: s-kernel
+          fetch-depth: 1
+
+      - name: Show which source commit is being built
+        run: git log -1 --format='Building commit %H - %s'
 
       - name: Helpers (retry for flaky downloads, make wrapper)
         run: |
@@ -334,6 +352,8 @@ jobs:
             retry wget -q -O work/stock_boot.img "$STOCK_BOOT_URL"
           elif [ -f s-kernel/boot.img ]; then
             cp s-kernel/boot.img work/stock_boot.img
+          elif [ -f _stock/s-kernel/boot.img ]; then
+            cp _stock/s-kernel/boot.img work/stock_boot.img
           fi
           if [ -s work/stock_boot.img ]; then
             echo "have=true" >> "$GITHUB_OUTPUT"
