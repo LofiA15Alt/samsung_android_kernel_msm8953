@@ -226,12 +226,13 @@ typedef struct timespec		sdfat_timespec_t;
  * sb->s_flags.  Note that these mirror the equivalent MS_* flags where
  * represented in both.
  */
-#define SB_RDONLY	1	/* Mount read-only */
-#define SB_NODIRATIME	2048	/* Do not update directory access times */
-static inline bool sb_rdonly(const struct super_block *sb)
-{
-	return sb->s_flags & MS_RDONLY;
-}
+#ifndef SB_RDONLY
+#define SB_RDONLY  1       /* Mount read-only */
+#endif
+#ifndef SB_NODIRATIME
+#define SB_NODIRATIME      2048    /* Do not update directory access times */
+#endif
+/* sb_rdonly() is provided by include/linux/fs.h */
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
