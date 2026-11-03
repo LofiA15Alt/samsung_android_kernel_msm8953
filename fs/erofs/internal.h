@@ -16,6 +16,18 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include "erofs_fs.h"
+#include <linux/version.h>
+#include <linux/bitops.h>
+#include <linux/wait.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
+static inline void clear_and_wake_up_bit(int bit, void *word)
+{
+	clear_bit_unlock(bit, word);
+	smp_mb__after_atomic();
+	wake_up_bit(word, bit);
+}
+#endif
 
 /* redefine pr_fmt "erofs: " */
 #undef pr_fmt
