@@ -249,24 +249,25 @@ out:
 /*
  * Obtain attributes of an object given a dentry
  */
-int orangefs_getattr(const struct path *path, struct kstat *stat,
-		     u32 request_mask, unsigned int flags)
+int orangefs_getattr(struct vfsmount *mnt,
+		  struct dentry *dentry,
+		  struct kstat *kstat)
 {
 	int ret = -ENOENT;
-	struct inode *inode = path->dentry->d_inode;
+	struct inode *inode = dentry->d_inode;
 	struct orangefs_inode_s *orangefs_inode = NULL;
 
 	gossip_debug(GOSSIP_INODE_DEBUG,
 		     "orangefs_getattr: called on %pd\n",
-		     path->dentry);
+		     dentry);
 
 	ret = orangefs_inode_getattr(inode, 0, 0);
 	if (ret == 0) {
-		generic_fillattr(inode, stat);
+		generic_fillattr(inode, kstat);
 
 		/* override block size reported to stat */
 		orangefs_inode = ORANGEFS_I(inode);
-		stat->blksize = orangefs_inode->blksize;
+		kstat->blksize = orangefs_inode->blksize;
 	}
 	return ret;
 }

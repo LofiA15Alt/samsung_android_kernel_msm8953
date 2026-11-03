@@ -471,10 +471,9 @@ error:
 }
 
 static int
-v9fs_vfs_getattr_dotl(const struct path *path, struct kstat *stat,
-		 u32 request_mask, unsigned int flags)
+v9fs_vfs_getattr_dotl(struct vfsmount *mnt, struct dentry *dentry,
+		 struct kstat *stat)
 {
-	struct dentry *dentry = path->dentry;
 	struct v9fs_session_info *v9ses;
 	struct p9_fid *fid;
 	struct p9_stat_dotl *st;

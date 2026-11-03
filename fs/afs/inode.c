@@ -376,10 +376,12 @@ error_unlock:
 /*
  * read the attributes of an inode
  */
-int afs_getattr(const struct path *path, struct kstat *stat,
-		u32 request_mask, unsigned int query_flags)
+int afs_getattr(struct vfsmount *mnt, struct dentry *dentry,
+		      struct kstat *stat)
 {
-	struct inode *inode = d_inode(path->dentry);
+	struct inode *inode;
+
+	inode = d_inode(dentry);
 
 	_enter("{ ino=%lu v=%u }", inode->i_ino, inode->i_generation);
 

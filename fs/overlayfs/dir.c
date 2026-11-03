@@ -137,10 +137,9 @@ static void ovl_remove_opaque(struct dentry *upperdentry)
 	}
 }
 
-static int ovl_dir_getattr(const struct path *path, struct kstat *stat,
-			   u32 request_mask, unsigned int flags)
+static int ovl_dir_getattr(struct vfsmount *mnt, struct dentry *dentry,
+			 struct kstat *stat)
 {
-	struct dentry *dentry = path->dentry;
 	int err;
 	enum ovl_path_type type;
 	struct path realpath;
@@ -148,7 +147,7 @@ static int ovl_dir_getattr(const struct path *path, struct kstat *stat,
 
 	type = ovl_path_real(dentry, &realpath);
 	old_cred = ovl_override_creds(dentry->d_sb);
-	err = vfs_getattr(&realpath, stat, request_mask, flags);
+	err = vfs_getattr(&realpath, stat);
 	ovl_revert_creds(old_cred);
 	if (err)
 		return err;
@@ -258,8 +257,7 @@ static struct dentry *ovl_clear_empty(struct dentry *dentry,
 		goto out;
 
 	ovl_path_upper(dentry, &upperpath);
-	err = vfs_getattr(&upperpath, &stat,
-			  STATX_BASIC_STATS, AT_STATX_SYNC_AS_STAT);
+	err = vfs_getattr(&upperpath, &stat);
 	if (err)
 		goto out_unlock;
 
