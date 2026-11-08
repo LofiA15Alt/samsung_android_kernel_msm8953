@@ -722,8 +722,8 @@ static bool raw_tp_prog_is_valid_access(int off, int size,
 					enum bpf_access_type type,
 					struct bpf_insn_access_aux *info)
 {
-	/* largest tracepoint in the kernel has 12 args */
-	if (off < 0 || off >= sizeof(__u64) * 12)
+	/* largest tracepoint in the kernel has 25 args */
+	if (off < 0 || off >= sizeof(__u64) * 25)
 		return false;
 	if (type != BPF_READ)
 		return false;
@@ -930,6 +930,19 @@ void __bpf_trace_run(struct bpf_prog *prog, u64 *args)
 #define REPEAT_10(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_9(FN, DL, __VA_ARGS__)
 #define REPEAT_11(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_10(FN, DL, __VA_ARGS__)
 #define REPEAT_12(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_11(FN, DL, __VA_ARGS__)
+#define REPEAT_13(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_12(FN, DL, __VA_ARGS__)
+#define REPEAT_14(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_13(FN, DL, __VA_ARGS__)
+#define REPEAT_15(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_14(FN, DL, __VA_ARGS__)
+#define REPEAT_16(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_15(FN, DL, __VA_ARGS__)
+#define REPEAT_17(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_16(FN, DL, __VA_ARGS__)
+#define REPEAT_18(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_17(FN, DL, __VA_ARGS__)
+#define REPEAT_19(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_18(FN, DL, __VA_ARGS__)
+#define REPEAT_20(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_19(FN, DL, __VA_ARGS__)
+#define REPEAT_21(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_20(FN, DL, __VA_ARGS__)
+#define REPEAT_22(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_21(FN, DL, __VA_ARGS__)
+#define REPEAT_23(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_22(FN, DL, __VA_ARGS__)
+#define REPEAT_24(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_23(FN, DL, __VA_ARGS__)
+#define REPEAT_25(FN, DL, X, ...)	FN(X) UNPACK DL REPEAT_24(FN, DL, __VA_ARGS__)
 #define REPEAT(X, FN, DL, ...)		REPEAT_##X(FN, DL, __VA_ARGS__)
 
 #define SARG(X)		u64 arg##X
@@ -938,14 +951,14 @@ void __bpf_trace_run(struct bpf_prog *prog, u64 *args)
 #define __DL_COM	(,)
 #define __DL_SEM	(;)
 
-#define __SEQ_0_11	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+#define __SEQ_0_24	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24
 
 #define BPF_TRACE_DEFN_x(x)						\
 	void bpf_trace_run##x(struct bpf_prog *prog,			\
-			      REPEAT(x, SARG, __DL_COM, __SEQ_0_11))	\
+			      REPEAT(x, SARG, __DL_COM, __SEQ_0_24))	\
 	{								\
 		u64 args[x];						\
-		REPEAT(x, COPY, __DL_SEM, __SEQ_0_11);			\
+		REPEAT(x, COPY, __DL_SEM, __SEQ_0_24);			\
 		__bpf_trace_run(prog, args);				\
 	}								\
 	EXPORT_SYMBOL_GPL(bpf_trace_run##x)
@@ -961,6 +974,19 @@ BPF_TRACE_DEFN_x(9);
 BPF_TRACE_DEFN_x(10);
 BPF_TRACE_DEFN_x(11);
 BPF_TRACE_DEFN_x(12);
+BPF_TRACE_DEFN_x(13);
+BPF_TRACE_DEFN_x(14);
+BPF_TRACE_DEFN_x(15);
+BPF_TRACE_DEFN_x(16);
+BPF_TRACE_DEFN_x(17);
+BPF_TRACE_DEFN_x(18);
+BPF_TRACE_DEFN_x(19);
+BPF_TRACE_DEFN_x(20);
+BPF_TRACE_DEFN_x(21);
+BPF_TRACE_DEFN_x(22);
+BPF_TRACE_DEFN_x(23);
+BPF_TRACE_DEFN_x(24);
+BPF_TRACE_DEFN_x(25);
 
 static int __bpf_probe_register(struct bpf_raw_event_map *btp, struct bpf_prog *prog)
 {

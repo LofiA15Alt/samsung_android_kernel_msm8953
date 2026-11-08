@@ -16,8 +16,12 @@
 #endif
 
 #ifndef __COUNT_ARGS
-#define __COUNT_ARGS(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _n, X...) _n
-#define COUNT_ARGS(X...) __COUNT_ARGS(, ##X, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+#define __COUNT_ARGS(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, \
+		     _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, \
+		     _24, _25, _n, X...) _n
+#define COUNT_ARGS(X...) __COUNT_ARGS(, ##X, 25, 24, 23, 22, 21, 20, 19, 18, \
+				      17, 16, 15, 14, 13, 12, 11, 10, 9, 8, \
+				      7, 6, 5, 4, 3, 2, 1, 0)
 #endif
 
 #undef __entry
@@ -69,7 +73,20 @@
 #define __CAST10(a,...) __CAST_TO_U64(a), __CAST9(__VA_ARGS__)
 #define __CAST11(a,...) __CAST_TO_U64(a), __CAST10(__VA_ARGS__)
 #define __CAST12(a,...) __CAST_TO_U64(a), __CAST11(__VA_ARGS__)
-/* tracepoints with more than 12 arguments will hit build error */
+#define __CAST13(a,...) __CAST_TO_U64(a), __CAST12(__VA_ARGS__)
+#define __CAST14(a,...) __CAST_TO_U64(a), __CAST13(__VA_ARGS__)
+#define __CAST15(a,...) __CAST_TO_U64(a), __CAST14(__VA_ARGS__)
+#define __CAST16(a,...) __CAST_TO_U64(a), __CAST15(__VA_ARGS__)
+#define __CAST17(a,...) __CAST_TO_U64(a), __CAST16(__VA_ARGS__)
+#define __CAST18(a,...) __CAST_TO_U64(a), __CAST17(__VA_ARGS__)
+#define __CAST19(a,...) __CAST_TO_U64(a), __CAST18(__VA_ARGS__)
+#define __CAST20(a,...) __CAST_TO_U64(a), __CAST19(__VA_ARGS__)
+#define __CAST21(a,...) __CAST_TO_U64(a), __CAST20(__VA_ARGS__)
+#define __CAST22(a,...) __CAST_TO_U64(a), __CAST21(__VA_ARGS__)
+#define __CAST23(a,...) __CAST_TO_U64(a), __CAST22(__VA_ARGS__)
+#define __CAST24(a,...) __CAST_TO_U64(a), __CAST23(__VA_ARGS__)
+#define __CAST25(a,...) __CAST_TO_U64(a), __CAST24(__VA_ARGS__)
+/* tracepoints with more than 25 arguments will hit build error */
 #define CAST_TO_U64(...) CONCATENATE(__CAST, COUNT_ARGS(__VA_ARGS__))(__VA_ARGS__)
 
 #undef DECLARE_EVENT_CLASS
