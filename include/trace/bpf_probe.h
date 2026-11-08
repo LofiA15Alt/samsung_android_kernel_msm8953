@@ -43,18 +43,19 @@
 #undef __perf_task
 #define __perf_task(t)	(t)
 
-/* cast any integer, pointer, or small struct to u64 */
-#define UINTTYPE(size) \
-	__typeof__(__builtin_choose_expr(size == 1,  (u8)1, \
-		   __builtin_choose_expr(size == 2, (u16)2, \
-		   __builtin_choose_expr(size == 4, (u32)3, \
-		   __builtin_choose_expr(size == 8, (u64)4, \
-					 (void)5)))))
+/*
+ * Cast any scalar, pointer, or struct arg to u64 for BPF tracepoint probes.
+ * Use a plain u64 destination so this works for structs of any size
+ * (the Samsung MSM camera trace events pass structs by value whose sizeof > 8,
+ * which caused UINTTYPE to resolve to void and trigger a build error).
+ * For args larger than 8 bytes only the low 8 bytes are captured.
+ */
 #define __CAST_TO_U64(x) ({ \
+	u64 __dst = 0; \
 	typeof(x) __src = (x); \
-	UINTTYPE(sizeof(x)) __dst; \
-	memcpy(&__dst, &__src, sizeof(__dst)); \
-	(u64)__dst; })
+	memcpy(&__dst, &__src, \
+	       sizeof(__src) <= sizeof(__dst) ? sizeof(__src) : sizeof(__dst)); \
+	__dst; })
 
 #define __CAST1(a,...) __CAST_TO_U64(a)
 #define __CAST2(a,...) __CAST_TO_U64(a), __CAST1(__VA_ARGS__)
