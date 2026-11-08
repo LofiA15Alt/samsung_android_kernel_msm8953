@@ -94,35 +94,6 @@ static const struct bpf_func_proto bpf_probe_read_proto = {
 	.arg3_type	= ARG_ANYTHING,
 };
 
-BPF_CALL_3(bpf_probe_read_str, void *, dst, u32, size, const void *, unsafe_ptr)
-{
-	int ret;
-
-	/*
-	 * The strncpy_from_unsafe() call will likely not fill the entire
-	 * buffer, but that's okay in this circumstance as we're probing
-	 * arbitrary memory anyway similar to bpf_probe_read() and might
-	 * as well probe the stack. Thus, memory is explicitly cleared
-	 * only in error case, so that improper users ignoring return
-	 * code altogether don't copy garbage; otherwise length of string
-	 * is returned that can be used for bpf_perf_event_output() et al.
-	 */
-	ret = strncpy_from_unsafe(dst, unsafe_ptr, size);
-	if (unlikely(ret < 0))
-		memset(dst, 0, size);
-
-	return ret;
-}
-
-static const struct bpf_func_proto bpf_probe_read_str_proto = {
-	.func           = bpf_probe_read_str,
-	.gpl_only       = true,
-	.ret_type       = RET_INTEGER,
-	.arg1_type	= ARG_PTR_TO_RAW_STACK,
-	.arg2_type	= ARG_CONST_STACK_SIZE,
-	.arg3_type	= ARG_ANYTHING,
-};
-
 BPF_CALL_3(bpf_probe_write_user, void *, unsafe_ptr, const void *, src,
 	   u32, size)
 {
@@ -537,8 +508,6 @@ tracing_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_current_task_under_cgroup_proto;
 	case BPF_FUNC_get_prandom_u32:
 		return &bpf_get_prandom_u32_proto;
-	case BPF_FUNC_probe_read_str:
-		return &bpf_probe_read_str_proto;
 	default:
 		return NULL;
 	}
@@ -706,7 +675,8 @@ static const struct bpf_func_proto bpf_get_stackid_proto_raw_tp = {
 	.arg3_type	= ARG_ANYTHING,
 };
 
-static const struct bpf_func_proto *raw_tp_prog_func_proto(enum bpf_func_id func_id)
+static const struct bpf_func_proto *
+raw_tp_prog_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 {
 	switch (func_id) {
 	case BPF_FUNC_perf_event_output:
@@ -714,12 +684,13 @@ static const struct bpf_func_proto *raw_tp_prog_func_proto(enum bpf_func_id func
 	case BPF_FUNC_get_stackid:
 		return &bpf_get_stackid_proto_raw_tp;
 	default:
-		return tracing_func_proto(func_id);
+		return tracing_func_proto(func_id, prog);
 	}
 }
 
 static bool raw_tp_prog_is_valid_access(int off, int size,
 					enum bpf_access_type type,
+					const struct bpf_prog *prog,
 					struct bpf_insn_access_aux *info)
 {
 	/* largest tracepoint in the kernel has 25 args */
