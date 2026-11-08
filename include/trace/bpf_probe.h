@@ -4,6 +4,22 @@
 
 #ifdef CONFIG_BPF_EVENTS
 
+/*
+ * COUNT_ARGS and CONCATENATE were introduced upstream in 4.17.
+ * Provide them here for 4.9 backport compatibility.
+ */
+#ifndef __CONCAT
+#define __CONCAT(a, b)		a ## b
+#endif
+#ifndef CONCATENATE
+#define CONCATENATE(a, b)	__CONCAT(a, b)
+#endif
+
+#ifndef __COUNT_ARGS
+#define __COUNT_ARGS(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _n, X...) _n
+#define COUNT_ARGS(X...) __COUNT_ARGS(, ##X, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+#endif
+
 #undef __entry
 #define __entry entry
 
